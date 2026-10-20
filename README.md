@@ -142,7 +142,7 @@ Swap in your registry and repositories, put `REGISTRY_USERNAME` and `REGISTRY_PA
 
 ### Mirror a Public Base Image
 
-Copy a public image into your own registry, every platform at once, so your builds don't depend on the public registry's availability or pull limits. The source needs no login:
+Copy a public image into your own registry, every platform at once, so your builds don't depend on the public registry's availability or pull limits. The source needs no login. Copy from the registry that publishes the image, not a pull-through cache such as mirror.gcr.io, which can be missing the layers of platforms few people pull:
 
 ```yaml
 steps:
@@ -151,8 +151,8 @@ steps:
   - crane/login:
       registry: registry.example.com
   - crane/copy:
-      source: mirror.gcr.io/library/alpine:3.20
-      destination: registry.example.com/base-images/alpine:3.20
+      source: cgr.dev/chainguard/static:latest
+      destination: registry.example.com/base-images/static:latest
   - crane/logout:
       registry: registry.example.com
 ```

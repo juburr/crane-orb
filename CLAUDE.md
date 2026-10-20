@@ -64,7 +64,7 @@ Every crane call ends its options with `--`, so a reference that starts with `-`
 ### CI Pipeline (`.circleci/`)
 
 - `config.yml` - Setup workflow: `test-install` (install contract), `test-env-subst` (env subst and shell conventions), `test-commands` (`tests/login_test.sh` and `tests/commands_test.sh` against a stand-in crane), orb-tools lint, pack and review, shellcheck.
-- `test-deploy.yml` - `command-test`, `checksum-test` (the unlisted 0.12.0 fails closed; `known_versions` installs it), `arm64-test` (Arm machine, second install from cache), and `registry-test`, a matrix over crane 0.15.1 (the oldest with `auth logout`) and the default version. It copies `mirror.gcr.io/library/alpine:3.20` into a `registry:2` with htpasswd auth on a machine executor, whole and as linux/arm64, and checks the exported digests against the source's and the registry's, the tags, and that the registry refuses crane after `logout`. Publishing runs on `v*` tags.
+- `test-deploy.yml` - `command-test`, `checksum-test` (the unlisted 0.12.0 fails closed; `known_versions` installs it), `arm64-test` (Arm machine, second install from cache), and `registry-test`, a matrix over crane 0.15.1 (the oldest with `auth logout`) and the default version. It copies `cgr.dev/chainguard/static:latest`, pinned to the digest it reads first, into a `registry:2` with htpasswd auth on a machine executor, whole and as linux/arm64, and checks the exported digests against the source's and the registry's, the tags, and that the registry refuses crane after `logout`. The source comes from the registry that publishes it, not mirror.gcr.io: that pull-through cache can be missing the layers of platforms few people pull, and failed the copy that way. Publishing runs on `v*` tags.
 
 ## Linting
 

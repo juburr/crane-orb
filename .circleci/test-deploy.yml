@@ -95,8 +95,10 @@ jobs:
             crane version
   # Runs every command (install, login, copy, digest, tag, logout) under one crane version against a
   # local registry:2 that requires a login. The workflow runs it for 0.15.1, the oldest release with
-  # crane auth logout, and for the install command's default. It copies a multi-platform alpine image
-  # from mirror.gcr.io into the registry, whole and as one platform.
+  # crane auth logout, and for the install command's default. It copies a multi-platform image from
+  # cgr.dev into the registry, whole and as one platform. The source is the registry that publishes
+  # the image: a pull-through cache such as mirror.gcr.io can be missing the layers of platforms few
+  # people pull, and failed a copy that way.
   registry-test:
     parameters:
       crane_version:
@@ -108,7 +110,7 @@ jobs:
       REGISTRY_HOST: localhost:5000
       REGISTRY_USER: ci-user
       REGISTRY_SECRET: ci-password
-      SOURCE_IMAGE: mirror.gcr.io/library/alpine:3.20
+      SOURCE_IMAGE: cgr.dev/chainguard/static:latest
     steps:
       - checkout
       - run:
@@ -161,39 +163,42 @@ jobs:
       - run:
           name: Read The Source Digests
           command: |
+            # The tag can move while the job runs, so the rest of the job uses the image it points to now.
             SOURCE_DIGEST=$(crane digest "${SOURCE_IMAGE}")
-            SOURCE_ARM64_DIGEST=$(crane digest --platform linux/arm64 "${SOURCE_IMAGE}")
-            echo "Source: ${SOURCE_DIGEST}, linux/arm64: ${SOURCE_ARM64_DIGEST}"
+            SOURCE_REF="${SOURCE_IMAGE%:*}@${SOURCE_DIGEST}"
+            SOURCE_ARM64_DIGEST=$(crane digest --platform linux/arm64 "${SOURCE_REF}")
+            echo "Source: ${SOURCE_REF}, linux/arm64: ${SOURCE_ARM64_DIGEST}"
             [[ "${SOURCE_DIGEST}" != "${SOURCE_ARM64_DIGEST}" ]]
-            printf 'export SOURCE_DIGEST=%q\nexport SOURCE_ARM64_DIGEST=%q\n' "${SOURCE_DIGEST}" "${SOURCE_ARM64_DIGEST}" >> "${BASH_ENV}"
+            printf 'export SOURCE_DIGEST=%q\nexport SOURCE_REF=%q\nexport SOURCE_ARM64_DIGEST=%q\n' \
+              "${SOURCE_DIGEST}" "${SOURCE_REF}" "${SOURCE_ARM64_DIGEST}" >> "${BASH_ENV}"
       - crane-orb/login:
           registry: ${REGISTRY_HOST}
           username: REGISTRY_USER
           password: REGISTRY_SECRET
       - crane-orb/copy:
-          source: ${SOURCE_IMAGE}
-          destination: ${REGISTRY_HOST}/crane-orb-ci/alpine:copied
+          source: ${SOURCE_REF}
+          destination: ${REGISTRY_HOST}/crane-orb-ci/static:copied
       - crane-orb/digest:
-          image: ${REGISTRY_HOST}/crane-orb-ci/alpine:copied
+          image: ${REGISTRY_HOST}/crane-orb-ci/static:copied
       - run:
           name: Verify Copy And Digest
           command: |
             echo "CRANE_DIGEST=${CRANE_DIGEST}"
             echo "CRANE_DIGEST_REF=${CRANE_DIGEST_REF}"
             [[ "${CRANE_DIGEST}" == "${SOURCE_DIGEST}" ]]
-            [[ "${CRANE_DIGEST_REF}" == "${REGISTRY_HOST}/crane-orb-ci/alpine@${SOURCE_DIGEST}" ]]
+            [[ "${CRANE_DIGEST_REF}" == "${REGISTRY_HOST}/crane-orb-ci/static@${SOURCE_DIGEST}" ]]
             REGISTRY_DIGEST=$(curl -sS --fail -u "${REGISTRY_USER}:${REGISTRY_SECRET}" -o /dev/null -D - \
               -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
-              "http://${REGISTRY_HOST}/v2/crane-orb-ci/alpine/manifests/copied" \
+              "http://${REGISTRY_HOST}/v2/crane-orb-ci/static/manifests/copied" \
               | awk -F': ' 'tolower($1) == "docker-content-digest" { print $2 }' | tr -d '\r')
             echo "Registry digest: ${REGISTRY_DIGEST}"
             [[ "${REGISTRY_DIGEST}" == "${SOURCE_DIGEST}" ]]
       - crane-orb/copy:
           source: ${CRANE_DIGEST_REF}
-          destination: ${REGISTRY_HOST}/crane-orb-ci/alpine:arm64
+          destination: ${REGISTRY_HOST}/crane-orb-ci/static:arm64
           platform: linux/arm64
       - crane-orb/digest:
-          image: ${REGISTRY_HOST}/crane-orb-ci/alpine:arm64
+          image: ${REGISTRY_HOST}/crane-orb-ci/static:arm64
           digest_env_var: ARM64_DIGEST
           digest_ref_env_var: ARM64_DIGEST_REF
       - run:
@@ -210,7 +215,7 @@ jobs:
           name: Verify Tags
           command: |
             for tag in 1.0.0 latest; do
-              TAG_DIGEST=$(crane digest "${REGISTRY_HOST}/crane-orb-ci/alpine:${tag}")
+              TAG_DIGEST=$(crane digest "${REGISTRY_HOST}/crane-orb-ci/static:${tag}")
               echo "${tag}: ${TAG_DIGEST}"
               [[ "${TAG_DIGEST}" == "${CRANE_DIGEST}" ]]
             done
@@ -219,7 +224,7 @@ jobs:
       - run:
           name: Verify Logout
           command: |
-            if crane digest "${REGISTRY_HOST}/crane-orb-ci/alpine:copied"; then
+            if crane digest "${REGISTRY_HOST}/crane-orb-ci/static:copied"; then
               echo "FAIL: crane read the registry after logout."
               exit 1
             fi
