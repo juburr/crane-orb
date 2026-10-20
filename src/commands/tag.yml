@@ -1,0 +1,39 @@
+description: >
+  Adds tags to an image already in a registry with crane tag, which writes the
+  image's manifest under each new tag in the same repository without pulling
+  or pushing any layers. Log in to the registry first.
+parameters:
+  image:
+    type: string
+    description: >
+      Image to tag: <registry>/<repository>@<digest>, or :<tag> in place of
+      @<digest>. A digest, such as the reference the digest command exports,
+      tags exactly that image. Environment variables are expanded.
+  tags:
+    type: string
+    description: >
+      Tags to add, separated by spaces or newlines, such as 1.2.3 latest.
+      Each is a tag only, not a reference: it is added in image's repository.
+  insecure:
+    type: boolean
+    default: false
+    description: >
+      Allow a registry without TLS, or with a certificate that doesn't verify.
+      For localhost with a port, 127.0.0.1, *.localhost and private IP
+      addresses, crane already falls back to plain HTTP.
+  extra_args:
+    type: string
+    default: ""
+    description: >
+      More arguments for crane tag, split like shell words. Nothing in them is
+      run as shell code.
+steps:
+  - run:
+      name: crane Tag
+      environment:
+        PARAM_EXTRA_ARGS: << parameters.extra_args >>
+        PARAM_IMAGE: << parameters.image >>
+        PARAM_INSECURE: << parameters.insecure >>
+        PARAM_TAGS: << parameters.tags >>
+        SCRIPT_CRANE_LIB: << include(scripts/lib/crane.sh) >>
+      command: << include(scripts/tag.sh) >>

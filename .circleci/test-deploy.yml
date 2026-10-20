@@ -1,0 +1,265 @@
+version: 2.1
+orbs:
+  # Your orb will be automatically injected here during the pipeline.
+  # Reference your orb's jobs and commands below as they will exist when built.
+  orb-tools: circleci/orb-tools@12.5
+  # The orb definition is intentionally not included here. It will be injected into the pipeline.
+  crane-orb: {}
+
+# Use this tag to ensure test jobs always run,
+# even though the downstream publish job will only run on release tags.
+filters: &filters
+  tags:
+    only: /.*/
+
+# Filter for release tags.
+release-filters: &release-filters
+  branches:
+    ignore: /.*/
+  tags:
+    only: /^v[0-9]+\.[0-9]+\.[0-9]+$/
+
+jobs:
+  # Create jobs to test the commands of your orbs.
+  # You may want to add additional validation steps to ensure the commands are working as expected.
+  command-test:
+    docker:
+      - image: cimg/base:current-22.04
+    steps:
+      - checkout
+      # Run your orb's commands to validate them.
+      - crane-orb/install
+      - run:
+          name: Verify Install
+          command: |
+            command -v crane
+            crane version
+  # Runs install.sh under the verify_checksums default declared in install.yml against a real
+  # crane release that has no checksum in the lookup table (a 404 cannot explain a failure).
+  checksum-test:
+    docker:
+      - image: cimg/base:current-22.04
+    environment:
+      UNLISTED_VERSION: 0.12.0
+    steps:
+      - checkout
+      - run:
+          name: Unlisted Version Fails Closed By Default
+          command: |
+            REPO_DIR=$(pwd)
+            DEFAULT_MODE=$(yq '.parameters.verify_checksums.default' src/commands/install.yml)
+            echo "verify_checksums default: ${DEFAULT_MODE}"
+            cd "$(mktemp -d)" && mkdir bin
+            if PARAM_INSTALL_PATH="$(pwd)/bin" PARAM_VERIFY_CHECKSUMS="${DEFAULT_MODE}" PARAM_VERSION="${UNLISTED_VERSION}" \
+                bash "${REPO_DIR}/src/scripts/install.sh"; then
+              echo "FAIL: install succeeded for unlisted version ${UNLISTED_VERSION} under the default."
+              exit 1
+            fi
+            if [[ -e bin/crane || -n "$(ls -A | grep -vx bin)" ]]; then
+              echo "FAIL: install downloaded or installed crane before rejecting the unlisted version."
+              exit 1
+            fi
+            echo "PASS: unlisted version ${UNLISTED_VERSION} failed closed before download."
+      - run:
+          name: known_versions Opt-Out Installs Unlisted Version
+          command: |
+            REPO_DIR=$(pwd)
+            cd "$(mktemp -d)" && mkdir bin
+            PARAM_INSTALL_PATH="$(pwd)/bin" PARAM_VERIFY_CHECKSUMS=known_versions PARAM_VERSION="${UNLISTED_VERSION}" \
+              bash "${REPO_DIR}/src/scripts/install.sh" 2>&1 | tee install.log
+            grep -q "has no checksum for crane ${UNLISTED_VERSION}" install.log
+            grep -q "UNVERIFIED" install.log
+            [[ "$(bin/crane version)" == "${UNLISTED_VERSION}" ]]
+  # Installs on an Arm machine to confirm the arm64 build is selected and verified. The second
+  # install restores the release cached by the first, covering the cache-hit path.
+  arm64-test:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: arm.medium
+    steps:
+      - crane-orb/install
+      - crane-orb/install
+      - run:
+          name: Verify arm64 Install
+          command: |
+            if [[ "$(uname -m)" != "aarch64" ]]; then
+              echo "FAIL: expected an aarch64 machine, got $(uname -m)."
+              exit 1
+            fi
+            CRANE_FILE_TYPE=$(file -L "$(command -v crane)")
+            echo "${CRANE_FILE_TYPE}"
+            if [[ "${CRANE_FILE_TYPE}" != *"ARM aarch64"* ]]; then
+              echo "FAIL: the installed crane binary is not an arm64 build."
+              exit 1
+            fi
+            crane version
+  # Runs every command (install, login, copy, digest, tag, logout) under one crane version against a
+  # local registry:2 that requires a login. The workflow runs it for 0.15.1, the oldest release with
+  # crane auth logout, and for the install command's default. It copies a multi-platform image from
+  # cgr.dev into the registry, whole and as one platform. The source is the registry that publishes
+  # the image: a pull-through cache such as mirror.gcr.io can be missing the layers of platforms few
+  # people pull, and failed a copy that way.
+  registry-test:
+    parameters:
+      crane_version:
+        type: string
+        description: crane version to install, or "default" to use the install command's default version.
+    machine:
+      image: ubuntu-2204:current
+    environment:
+      REGISTRY_HOST: localhost:5000
+      REGISTRY_USER: ci-user
+      REGISTRY_SECRET: ci-password
+      SOURCE_IMAGE: cgr.dev/chainguard/static:latest
+    steps:
+      - checkout
+      - run:
+          name: Start A Registry That Requires A Login
+          command: |
+            # mirror.gcr.io serves the Docker Hub images without Docker Hub's anonymous pull limits.
+            # A pull from it can time out, so pull with retries before running them.
+            for image in mirror.gcr.io/library/httpd:2 mirror.gcr.io/library/registry:2; do
+              for attempt in 1 2 3; do
+                docker pull "${image}" && break
+                sleep $((attempt * 10))
+              done
+            done
+            mkdir -p /tmp/registry-auth
+            docker run --rm --entrypoint htpasswd mirror.gcr.io/library/httpd:2 -Bbn "${REGISTRY_USER}" "${REGISTRY_SECRET}" \
+              > /tmp/registry-auth/htpasswd
+            docker run -d --name registry -p 5000:5000 -v /tmp/registry-auth:/auth \
+              -e REGISTRY_AUTH=htpasswd -e REGISTRY_AUTH_HTPASSWD_REALM=crane-orb-ci \
+              -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd mirror.gcr.io/library/registry:2
+            # A 401 means the registry is up and refuses anonymous requests.
+            for _ in $(seq 1 30); do
+              if [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://${REGISTRY_HOST}/v2/")" == "401" ]]; then
+                exit 0
+              fi
+              sleep 1
+            done
+            echo "FAIL: the registry did not start."
+            docker logs registry
+            exit 1
+      - when:
+          condition:
+            equal: ["default", << parameters.crane_version >>]
+          steps:
+            - crane-orb/install
+      - unless:
+          condition:
+            equal: ["default", << parameters.crane_version >>]
+          steps:
+            - crane-orb/install:
+                version: << parameters.crane_version >>
+      - run:
+          name: Verify crane Version
+          command: |
+            EXPECTED_VERSION="<< parameters.crane_version >>"
+            if [[ "${EXPECTED_VERSION}" == "default" ]]; then
+              EXPECTED_VERSION=$(awk '/^  version:/ { found = 1 } found && /default:/ { gsub(/"/, "", $2); print $2; exit }' src/commands/install.yml)
+            fi
+            echo "Expected ${EXPECTED_VERSION}, installed $(crane version)"
+            [[ "$(crane version)" == "${EXPECTED_VERSION}" ]]
+      - run:
+          name: Read The Source Digests
+          command: |
+            # The tag can move while the job runs, so the rest of the job uses the image it points to now.
+            SOURCE_DIGEST=$(crane digest "${SOURCE_IMAGE}")
+            SOURCE_REF="${SOURCE_IMAGE%:*}@${SOURCE_DIGEST}"
+            SOURCE_ARM64_DIGEST=$(crane digest --platform linux/arm64 "${SOURCE_REF}")
+            echo "Source: ${SOURCE_REF}, linux/arm64: ${SOURCE_ARM64_DIGEST}"
+            [[ "${SOURCE_DIGEST}" != "${SOURCE_ARM64_DIGEST}" ]]
+            printf 'export SOURCE_DIGEST=%q\nexport SOURCE_REF=%q\nexport SOURCE_ARM64_DIGEST=%q\n' \
+              "${SOURCE_DIGEST}" "${SOURCE_REF}" "${SOURCE_ARM64_DIGEST}" >> "${BASH_ENV}"
+      - crane-orb/login:
+          registry: ${REGISTRY_HOST}
+          username: REGISTRY_USER
+          password: REGISTRY_SECRET
+      - crane-orb/copy:
+          source: ${SOURCE_REF}
+          destination: ${REGISTRY_HOST}/crane-orb-ci/static:copied
+      - crane-orb/digest:
+          image: ${REGISTRY_HOST}/crane-orb-ci/static:copied
+      - run:
+          name: Verify Copy And Digest
+          command: |
+            echo "CRANE_DIGEST=${CRANE_DIGEST}"
+            echo "CRANE_DIGEST_REF=${CRANE_DIGEST_REF}"
+            [[ "${CRANE_DIGEST}" == "${SOURCE_DIGEST}" ]]
+            [[ "${CRANE_DIGEST_REF}" == "${REGISTRY_HOST}/crane-orb-ci/static@${SOURCE_DIGEST}" ]]
+            REGISTRY_DIGEST=$(curl -sS --fail -u "${REGISTRY_USER}:${REGISTRY_SECRET}" -o /dev/null -D - \
+              -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+              "http://${REGISTRY_HOST}/v2/crane-orb-ci/static/manifests/copied" \
+              | awk -F': ' 'tolower($1) == "docker-content-digest" { print $2 }' | tr -d '\r')
+            echo "Registry digest: ${REGISTRY_DIGEST}"
+            [[ "${REGISTRY_DIGEST}" == "${SOURCE_DIGEST}" ]]
+      - crane-orb/copy:
+          source: ${CRANE_DIGEST_REF}
+          destination: ${REGISTRY_HOST}/crane-orb-ci/static:arm64
+          platform: linux/arm64
+      - crane-orb/digest:
+          image: ${REGISTRY_HOST}/crane-orb-ci/static:arm64
+          digest_env_var: ARM64_DIGEST
+          digest_ref_env_var: ARM64_DIGEST_REF
+      - run:
+          name: Verify Single-Platform Copy
+          command: |
+            echo "ARM64_DIGEST=${ARM64_DIGEST}"
+            [[ "${ARM64_DIGEST}" == "${SOURCE_ARM64_DIGEST}" ]]
+      - crane-orb/tag:
+          image: ${CRANE_DIGEST_REF}
+          tags: |
+            1.0.0
+            latest
+      - run:
+          name: Verify Tags
+          command: |
+            for tag in 1.0.0 latest; do
+              TAG_DIGEST=$(crane digest "${REGISTRY_HOST}/crane-orb-ci/static:${tag}")
+              echo "${tag}: ${TAG_DIGEST}"
+              [[ "${TAG_DIGEST}" == "${CRANE_DIGEST}" ]]
+            done
+      - crane-orb/logout:
+          registry: ${REGISTRY_HOST}
+      - run:
+          name: Verify Logout
+          command: |
+            if crane digest "${REGISTRY_HOST}/crane-orb-ci/static:copied"; then
+              echo "FAIL: crane read the registry after logout."
+              exit 1
+            fi
+            echo "PASS: the registry refuses crane after logout."
+
+workflows:
+  test-deploy:
+    jobs:
+      # Make sure to include "filters: *filters" in every test job you want to run as part of your deployment.
+      # Test your orb's commands in a custom job and test your orb's jobs directly as a part of this workflow.
+      - command-test:
+          filters: *filters
+      - checksum-test:
+          filters: *filters
+      - arm64-test:
+          filters: *filters
+      - registry-test:
+          name: registry-test-<< matrix.crane_version >>
+          matrix:
+            parameters:
+              crane_version: ["0.15.1", "default"]
+          filters: *filters
+      # The orb must be re-packed for publishing, and saved to the workspace.
+      - orb-tools/pack:
+          filters: *release-filters
+      - orb-tools/publish:
+          orb_name: juburr/crane-orb
+          vcs_type: << pipeline.project.type >>
+          pub_type: production
+          # Ensure this job requires all test jobs and the pack job.
+          requires:
+            - orb-tools/pack
+            - command-test
+            - checksum-test
+            - arm64-test
+            - registry-test
+          context: orb-publishing
+          filters: *release-filters

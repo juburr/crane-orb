@@ -1,0 +1,32 @@
+description: >
+  Stores credentials for an OCI registry with crane auth login, where Docker
+  stores them (~/.docker/config.json), so the orb's other commands and later
+  crane or docker commands can use them. crane does not contact the registry
+  here, so wrong credentials only fail the first command that uses them. Run
+  logout when the job no longer needs them.
+parameters:
+  registry:
+    type: string
+    description: >
+      Registry host to store credentials for, with an optional port, such as
+      ghcr.io or localhost:5000. Environment variables are expanded.
+  username:
+    type: env_var_name
+    default: REGISTRY_USERNAME
+    description: >
+      Name of the environment variable holding the username.
+  password:
+    type: env_var_name
+    default: REGISTRY_PASSWORD
+    description: >
+      Name of the environment variable holding the password or token. It
+      reaches crane on stdin, never on its command line.
+steps:
+  - run:
+      name: crane Login
+      environment:
+        PARAM_PASSWORD: << parameters.password >>
+        PARAM_REGISTRY: << parameters.registry >>
+        PARAM_USERNAME: << parameters.username >>
+        SCRIPT_CRANE_LIB: << include(scripts/lib/crane.sh) >>
+      command: << include(scripts/login.sh) >>
