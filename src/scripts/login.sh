@@ -36,8 +36,9 @@ if [[ "${REGISTRY}" == *://* || "${REGISTRY}" == */* ]]; then
     echo "ERROR: registry must be a host with an optional port, such as ghcr.io or localhost:5000, not '${REGISTRY}'." >&2
     exit 1
 fi
-# Without a username, crane stores an entry that later reads of the Docker
-# config reject, which breaks every crane command for every registry.
+# Without a username, crane stores an entry that crane 0.14.0 and later, and
+# docker, reject when they read the Docker config, which breaks every later
+# crane command for every registry.
 if [[ -z "${USERNAME}" ]]; then
     echo "ERROR: The ${PARAM_USERNAME} environment variable, which username names, is empty or unset." >&2
     echo "  Set it in a context or project environment variable, or pass the name of another variable as username." >&2

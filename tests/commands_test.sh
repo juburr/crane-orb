@@ -250,7 +250,7 @@ check "logout does not run crane without a registry" crane_not_run
 
 run logout.sh CRANE_EXIT=1
 check "logout fails when crane auth logout fails" rc_is_nonzero
-check "logout names the crane version it needs" output_has "It needs crane 0.15.1 or later"
+check "logout names the crane version it needs" output_has "it needs crane 0.15.1 or later"
 
 # --- crane_export
 # The digests above need no quoting, so the helper gets a value that does.

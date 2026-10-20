@@ -9,7 +9,8 @@
 #     $BASH_ENV) is off before the credentials are read
 #   - a password of -n reaches crane intact (echo would take it as an option)
 #   - an empty username or password stops the step before crane runs: without
-#     a username, crane writes a Docker config entry that later reads reject
+#     a username, crane writes a Docker config entry that crane 0.14.0 and
+#     later reject when they read it
 #   - a registry given as a URL or with a repository path is refused
 #
 # The scripts run with the bash first on the PATH, so putting an older bash

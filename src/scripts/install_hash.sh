@@ -27,21 +27,20 @@ set -euo pipefail
 # unsigned.
 CRANE_RELEASES_WITHOUT_PROVENANCE="0.19.2 0.20.0 0.20.1 0.20.2 0.20.3 0.21.8"
 
-# verify_upstream VERSION ARCH ASSET: checks ASSET against checksums.txt, the
-# SHA-256 list go-containerregistry publishes with each release, and against
-# the release's SLSA build provenance, multiple.intoto.jsonl, which
-# slsa-verifier checks was built from the google/go-containerregistry
-# repository at the release's tag.
+# verify_upstream VERSION ARCH ASSET: checks ASSET against the release's SLSA
+# build provenance, multiple.intoto.jsonl, and against checksums.txt, the
+# SHA-256 list go-containerregistry publishes with each release.
+# slsa-verifier checks that the provenance was signed for a build of the
+# google/go-containerregistry repository at the release's tag and that it
+# covers ASSET's digest; the provenance it verified must also list ASSET under
+# its own name, since one provenance covers every platform's archive. The
+# provenance is required except for the releases in
+# CRANE_RELEASES_WITHOUT_PROVENANCE, which checksums.txt alone covers.
 # Returns 0 when it matches, 2 when nothing was published, and 1 otherwise.
 verify_upstream() {
-    local base="https://github.com/google/go-containerregistry/releases/download/v$1" name=${3##*/} published actual rc=0
-    hash_fetch "${base}/checksums.txt" list || rc=$?
-    if [[ "${rc}" -eq 2 ]]; then
-        echo "go-containerregistry $1 publishes no checksums.txt."
-        return 2
-    elif [[ "${rc}" -ne 0 ]]; then
-        return 1
-    fi
+    local base="https://github.com/google/go-containerregistry/releases/download/v$1" name=${3##*/}
+    local published actual signed verified=false rc=0
+    actual=$(sha256sum "$3" | awk '{ print $1 }')
     hash_fetch "${base}/multiple.intoto.jsonl" provenance.intoto.jsonl || rc=$?
     if [[ "${rc}" -eq 1 ]]; then
         return 1
@@ -52,23 +51,44 @@ verify_upstream() {
         fi
         echo "NOTE: go-containerregistry $1 publishes no SLSA provenance; checking ${name} against checksums.txt alone."
     else
-        if ! command -v slsa-verifier > /dev/null; then
-            echo "ERROR: slsa-verifier is required to verify the SLSA provenance of ${name}."
+        if ! command -v slsa-verifier > /dev/null || ! command -v jq > /dev/null; then
+            echo "ERROR: slsa-verifier and jq are required to verify the SLSA provenance of ${name}."
             return 1
         fi
-        if ! slsa-verifier verify-artifact --provenance-path provenance.intoto.jsonl \
-            --source-uri github.com/google/go-containerregistry --source-tag "v$1" "$3" > /dev/null 2>&1; then
+        if ! slsa-verifier verify-artifact --print-provenance --provenance-path provenance.intoto.jsonl \
+            --source-uri github.com/google/go-containerregistry --source-tag "v$1" "$3" > provenance.json 2> /dev/null; then
             echo "ERROR: slsa-verifier could not verify ${name} against the SLSA provenance of go-containerregistry v$1."
             return 1
         fi
+        signed=$(jq -r --arg name "${name}" '[.subject[] | select(.name == $name) | .digest.sha256] | join(" ")' provenance.json 2> /dev/null) || signed=""
+        if [[ "${signed}" != "${actual}" ]]; then
+            echo "ERROR: the SLSA provenance of go-containerregistry v$1 does not list ${name} with its SHA-256 ${actual}."
+            return 1
+        fi
         echo "ok: ${name} matches the SLSA provenance of go-containerregistry v$1."
+        verified=true
+    fi
+    rc=0
+    hash_fetch "${base}/checksums.txt" list || rc=$?
+    if [[ "${rc}" -eq 1 ]]; then
+        return 1
+    elif [[ "${rc}" -eq 2 ]]; then
+        if [[ "${verified}" == true ]]; then
+            echo "NOTE: go-containerregistry $1 publishes no checksums.txt; the SLSA provenance covers ${name}."
+            return 0
+        fi
+        echo "go-containerregistry $1 publishes no checksums.txt."
+        return 2
     fi
     published=$(awk -v name="${name}" '$2 == name || $2 == "*" name { print $1; exit }' list)
     if [[ -z "${published}" ]]; then
+        if [[ "${verified}" == true ]]; then
+            echo "ERROR: checksums.txt does not list ${name}, although its SLSA provenance does."
+            return 1
+        fi
         echo "checksums.txt does not list ${name}."
         return 2
     fi
-    actual=$(sha256sum "$3" | awk '{ print $1 }')
     if [[ "${actual}" != "${published}" ]]; then
         echo "ERROR: ${name} has SHA-256 ${actual}, but ${published} was published."
         return 1

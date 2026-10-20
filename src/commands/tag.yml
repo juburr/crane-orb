@@ -19,7 +19,8 @@ parameters:
     default: false
     description: >
       Allow a registry without TLS, or with a certificate that doesn't verify.
-      crane already uses plain HTTP for localhost.
+      For localhost with a port, 127.0.0.1, *.localhost and private IP
+      addresses, crane already falls back to plain HTTP.
   extra_args:
     type: string
     default: ""

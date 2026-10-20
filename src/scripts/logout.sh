@@ -21,6 +21,6 @@ crane_require
 
 echo "Removing the credentials for ${REGISTRY} with crane..."
 if ! crane auth logout -- "${REGISTRY}"; then
-    echo "ERROR: crane auth logout failed. It needs crane 0.15.1 or later." >&2
+    echo "ERROR: crane auth logout failed. If crane reported an unknown command \"logout\", it needs crane 0.15.1 or later." >&2
     exit 1
 fi

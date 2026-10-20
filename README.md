@@ -157,7 +157,7 @@ steps:
       registry: registry.example.com
 ```
 
-Set `platform` to copy one platform of a multi-platform image, such as `linux/amd64`. The copy is then that platform's image, with that platform's digest. To never overwrite a tag that already exists in the destination, pass `extra_args: --no-clobber` (crane 0.15.1 and later): the step then fails instead of overwriting.
+Set `platform` to copy one platform of a multi-platform image, such as `linux/amd64`. The copy is then that platform's image, with that platform's digest. To never overwrite a tag that already exists in the destination, pass `extra_args: --no-clobber` (crane 0.15.1 and later). The step then fails whenever the tag exists, even when it already holds the same image, so a re-run fails too.
 
 ### Pin a Tag Before Signing or Deploying
 
@@ -175,7 +175,7 @@ A tag can move between the time one step reads it and the time the next one uses
 
 ### Use a Registry Without TLS
 
-crane already uses plain HTTP for `localhost` and `127.0.0.1`, so a `registry:2` service container works as is. For another host without TLS, or with a certificate that doesn't verify, set `insecure` on `copy`, `digest` and `tag`:
+crane already falls back from HTTPS to plain HTTP for `localhost` with a port, `127.0.0.1`, `::1`, `*.localhost` hosts and private IP addresses (`10.0.0.0/8`, `172.16.0.0/12` and `192.168.0.0/16`), so a `registry:2` service container works as is. For another host without TLS, or with a certificate that doesn't verify, set `insecure` on `copy`, `digest` and `tag`:
 
 ```yaml
 - crane/copy:
@@ -226,8 +226,8 @@ Copies an image from one registry or repository to another with `crane copy`. A 
 | `source` | *required* | Image to copy: `<registry>/<repository>:<tag>` or `<registry>/<repository>@<digest>`. |
 | `destination` | *required* | Where to copy it: `<registry>/<repository>:<tag>`. |
 | `platform` | *(empty)* | Copy only this platform of a multi-platform image, such as `linux/amd64`. The copy then has the platform's own digest. |
-| `insecure` | `false` | Allow registries without TLS, or with a certificate that doesn't verify. crane already uses plain HTTP for `localhost`. |
-| `extra_args` | *(empty)* | More arguments for `crane copy`, split like shell words. Nothing in them is run as shell code. From crane 0.15.1 on, these include `--no-clobber`, which fails the step rather than overwrite an existing tag, `--all-tags` and `--jobs`. |
+| `insecure` | `false` | Allow registries without TLS, or with a certificate that doesn't verify. For `localhost` with a port, `127.0.0.1`, `*.localhost` and private IP addresses, crane already falls back to plain HTTP. |
+| `extra_args` | *(empty)* | More arguments for `crane copy`, split like shell words. Nothing in them is run as shell code. From crane 0.15.1 on, these include `--jobs`, `--all-tags`, which takes `source` and `destination` as repositories without a tag, and `--no-clobber`, which fails the step whenever the destination tag exists, even when it holds the same image. |
 
 ### `crane/digest`
 
@@ -284,7 +284,7 @@ The `install` command checks the `crane` binary from the downloaded release agai
 | `known_versions` | ✅ Verified; install fails on mismatch | ⚠️ Installed **unverified**, with a warning |
 | `false` | ⚠️ Not verified | ⚠️ Installed **unverified** |
 
-The table covers every crane release from 0.13.0, the first with SLSA build provenance, through 0.22.1, the default `version`. Before `src/scripts/install_hash.sh` prints an entry, it checks the release archive against the release's `checksums.txt` and, with `slsa-verifier`, against its SLSA provenance for the google/go-containerregistry repository and the release's tag. Six releases in that range were published without provenance (0.19.2, 0.20.0 to 0.20.3, and 0.21.8); their entries are checked against `checksums.txt` alone, and any other release without provenance is refused. If you pin a crane release newer than this orb, `strict` fails until the orb is upgraded. Upgrade the orb (or open a PR adding the checksum, generated with `src/scripts/install_hash.sh`) rather than opting out. `known_versions` and `false` remain available for cases where you accept running an unverified binary.
+The table covers every crane release from 0.13.0, the first with SLSA build provenance, through 0.22.1, the default `version`. Before `src/scripts/install_hash.sh` prints an entry, it checks the release archive with `slsa-verifier` against the release's SLSA provenance for the google/go-containerregistry repository and the release's tag, requires that provenance to list the archive under its own name, and checks the archive against the release's `checksums.txt`. Six releases in that range were published without provenance (0.19.2, 0.20.0 to 0.20.3, and 0.21.8); their entries are checked against `checksums.txt` alone, and any other release without provenance is refused. If you pin a crane release newer than this orb, `strict` fails until the orb is upgraded. Upgrade the orb (or open a PR adding the checksum, generated with `src/scripts/install_hash.sh`) rather than opting out. `known_versions` and `false` remain available for cases where you accept running an unverified binary.
 
 ## 🌐 Network Access
 
@@ -303,14 +303,14 @@ Hosts you configure, contacted only by the commands that take them:
 | --- | --- | --- |
 | The registries in `source`, `destination` and `image` | `copy`, `digest`, `tag` | The OCI registries, plus any other host a registry directs crane to, such as a token service it delegates authentication to (for example, Docker Hub uses `auth.docker.io`) or a storage host it redirects blob downloads to |
 
-A registry is reached on the port in the reference (443 by default), over plain HTTP for `localhost` or when `insecure` is set. `login` and `logout` make no network requests. On a runner with no route to GitHub, bake crane into the executor image instead, after checking the `crane` binary's SHA-512 against the table in [`src/scripts/install.sh`](src/scripts/install.sh), and skip `install`: the other commands only need `crane` on the `PATH`.
+A registry is reached on the port in the reference (443 by default). crane falls back from HTTPS to plain HTTP when `insecure` is set, and also, without it, for `localhost` with a port, `127.0.0.1`, `::1`, `*.localhost` hosts and private IP addresses (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`). Credentials for such a registry can then travel unencrypted, so give it TLS if it isn't on the same machine. `login` and `logout` make no network requests. On a runner with no route to GitHub, bake crane into the executor image instead, after checking the `crane` binary's SHA-512 against the table in [`src/scripts/install.sh`](src/scripts/install.sh), and skip `install`: the other commands only need `crane` on the `PATH`.
 
 ## 🤝 Contributing
 
 This is an unofficial, community-maintained orb, and contributions are welcome! Bug reports, feature ideas and pull requests all help.
 
 - **Found a bug or have an idea?** [Open an issue](https://github.com/juburr/crane-orb/issues).
-- **Need a newer crane release?** Generate its checksums with `src/scripts/install_hash.sh -v <version>`, paste them into the `sha512sums` table in [`src/scripts/install.sh`](src/scripts/install.sh), and open a pull request. The script checks each archive against the release's `checksums.txt` and its SLSA provenance before it prints an entry, and needs bash 4 or newer, `curl`, [`slsa-verifier`](https://github.com/slsa-framework/slsa-verifier), `awk`, `sed`, `tar`, `gzip` and the standard coreutils, including `mktemp`, `sha256sum` and `sha512sum`. A release without provenance fails unless it is one of the releases listed in `CRANE_RELEASES_WITHOUT_PROVENANCE`.
+- **Need a newer crane release?** Generate its checksums with `src/scripts/install_hash.sh -v <version>`, paste them into the `sha512sums` table in [`src/scripts/install.sh`](src/scripts/install.sh), and open a pull request. The script checks each archive against the release's SLSA provenance and `checksums.txt` before it prints an entry, and needs bash 4 or newer, `curl`, [`slsa-verifier`](https://github.com/slsa-framework/slsa-verifier), `jq`, `awk`, `sed`, `tar`, `gzip` and the standard coreutils, including `mktemp`, `sha256sum` and `sha512sum`. A release without provenance fails unless it is one of the releases listed in `CRANE_RELEASES_WITHOUT_PROVENANCE`.
 - **Before opening a pull request**, run the checks CI runs. The tests run offline. `circleci orb validate` checks the packed orb against the CircleCI API, so it needs network access.
 
   ```bash

@@ -26,15 +26,17 @@ parameters:
     default: false
     description: >
       Allow registries without TLS, or with a certificate that doesn't verify.
-      crane already uses plain HTTP for localhost.
+      For localhost with a port, 127.0.0.1, *.localhost and private IP
+      addresses, crane already falls back to plain HTTP.
   extra_args:
     type: string
     default: ""
     description: >
       More arguments for crane copy, split like shell words. Nothing in them
-      is run as shell code. From crane 0.15.1 on, these include --no-clobber,
-      which fails the step rather than overwrite an existing tag, --all-tags
-      and --jobs.
+      is run as shell code. From crane 0.15.1 on, these include --jobs,
+      --all-tags, which takes source and destination as repositories without
+      a tag, and --no-clobber, which fails the step whenever the destination
+      tag exists, even when it holds the same image.
 steps:
   - run:
       name: crane Copy
