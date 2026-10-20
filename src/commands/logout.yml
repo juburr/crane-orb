@@ -1,0 +1,16 @@
+description: >
+  Removes the credentials login stored for an OCI registry, with crane auth
+  logout. Logging out of a registry the job isn't logged in to succeeds.
+  Needs crane 0.15.1 or later.
+parameters:
+  registry:
+    type: string
+    description: >
+      Registry host to log out of: the same value login took.
+steps:
+  - run:
+      name: crane Logout
+      environment:
+        PARAM_REGISTRY: << parameters.registry >>
+        SCRIPT_CRANE_LIB: << include(scripts/lib/crane.sh) >>
+      command: << include(scripts/logout.sh) >>

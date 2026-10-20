@@ -1,0 +1,48 @@
+description: >
+  Copies an image from one registry or repository to another with crane copy,
+  registry to registry and without a Docker daemon. A multi-platform image is
+  copied with every platform, and keeps its digest. Log in to the registries
+  first, unless they allow anonymous access.
+parameters:
+  source:
+    type: string
+    description: >
+      Image to copy: <registry>/<repository>:<tag> or
+      <registry>/<repository>@<digest>. Environment variables are expanded.
+  destination:
+    type: string
+    description: >
+      Where to copy it: <registry>/<repository>:<tag>, such as
+      registry.example.com/myapp:1.0.0. Environment variables are expanded.
+  platform:
+    type: string
+    default: ""
+    description: >
+      Copy only this platform of a multi-platform image, such as linux/amd64.
+      The copy then has the platform's own digest. Empty copies every
+      platform.
+  insecure:
+    type: boolean
+    default: false
+    description: >
+      Allow registries without TLS, or with a certificate that doesn't verify.
+      crane already uses plain HTTP for localhost.
+  extra_args:
+    type: string
+    default: ""
+    description: >
+      More arguments for crane copy, split like shell words. Nothing in them
+      is run as shell code. From crane 0.15.1 on, these include --no-clobber,
+      which fails the step rather than overwrite an existing tag, --all-tags
+      and --jobs.
+steps:
+  - run:
+      name: crane Copy
+      environment:
+        PARAM_DESTINATION: << parameters.destination >>
+        PARAM_EXTRA_ARGS: << parameters.extra_args >>
+        PARAM_INSECURE: << parameters.insecure >>
+        PARAM_PLATFORM: << parameters.platform >>
+        PARAM_SOURCE: << parameters.source >>
+        SCRIPT_CRANE_LIB: << include(scripts/lib/crane.sh) >>
+      command: << include(scripts/copy.sh) >>

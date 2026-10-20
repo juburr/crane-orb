@@ -1,0 +1,35 @@
+description: >
+  Promote a tested image from a staging registry to production: read its
+  digest, copy exactly that image, and tag the copy as a release, all registry
+  to registry without a Docker daemon. Credentials come from the
+  REGISTRY_USERNAME and REGISTRY_PASSWORD environment variables, for example
+  in a context.
+
+usage:
+  version: 2.1
+  orbs:
+    crane: juburr/crane-orb@0.1.0
+  jobs:
+    promote:
+      docker:
+        - image: cimg/base:current-22.04
+      steps:
+        - crane/install:
+            version: "0.22.1"
+        - crane/login:
+            registry: ghcr.io
+        - crane/digest:
+            image: ghcr.io/myorg/myapp-staging:${CIRCLE_SHA1}
+        - crane/copy:
+            source: ${CRANE_DIGEST_REF}
+            destination: ghcr.io/myorg/myapp:${CIRCLE_SHA1}
+        - crane/tag:
+            image: ghcr.io/myorg/myapp@${CRANE_DIGEST}
+            tags: 1.2.3 latest
+        - crane/logout:
+            registry: ghcr.io
+  workflows:
+    release:
+      jobs:
+        - promote:
+            context: registry-credentials

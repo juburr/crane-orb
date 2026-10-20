@@ -1,0 +1,53 @@
+description: >
+  Reads an image's digest from its registry with crane digest, and exports
+  the digest and the image's reference by digest for later steps, so they can
+  sign, scan, tag or deploy exactly that image. Log in to the registry first,
+  unless it allows anonymous pulls.
+parameters:
+  image:
+    type: string
+    description: >
+      Image to read: <registry>/<repository>:<tag>, such as
+      ghcr.io/myorg/myapp:1.0.0. Environment variables are expanded.
+  platform:
+    type: string
+    default: ""
+    description: >
+      For a multi-platform image, read the digest of this platform's image,
+      such as linux/amd64, instead of the digest of the whole index.
+  insecure:
+    type: boolean
+    default: false
+    description: >
+      Allow a registry without TLS, or with a certificate that doesn't verify.
+      crane already uses plain HTTP for localhost.
+  extra_args:
+    type: string
+    default: ""
+    description: >
+      More arguments for crane digest, split like shell words. Nothing in them
+      is run as shell code.
+  digest_env_var:
+    type: env_var_name
+    default: CRANE_DIGEST
+    description: >
+      Name of the environment variable to set, for later steps, to the
+      digest, such as sha256:4c1f….
+  digest_ref_env_var:
+    type: env_var_name
+    default: CRANE_DIGEST_REF
+    description: >
+      Name of the environment variable to set, for later steps, to the image's
+      reference by digest, such as ghcr.io/myorg/myapp@sha256:4c1f….
+steps:
+  - run:
+      name: crane Digest
+      environment:
+        PARAM_DIGEST_ENV_VAR: << parameters.digest_env_var >>
+        PARAM_DIGEST_REF_ENV_VAR: << parameters.digest_ref_env_var >>
+        PARAM_EXTRA_ARGS: << parameters.extra_args >>
+        PARAM_IMAGE: << parameters.image >>
+        PARAM_INSECURE: << parameters.insecure >>
+        PARAM_PLATFORM: << parameters.platform >>
+        SCRIPT_CRANE_LIB: << include(scripts/lib/crane.sh) >>
+      command: << include(scripts/digest.sh) >>
