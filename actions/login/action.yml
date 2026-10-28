@@ -1,0 +1,40 @@
+name: Log in to a registry with crane
+description: >
+  Stores credentials for an OCI registry with crane auth login, where Docker
+  stores them (~/.docker/config.json), so the orb's other commands and later
+  crane or docker commands can use them. crane does not contact the registry
+  here, so wrong credentials only fail the first command that uses them. Run
+  logout when the job no longer needs them. The GitHub Actions twin of the orb's
+  login command.
+author: juburr
+
+inputs:
+  password:
+    description: >
+      Name of the environment variable holding the password or token. It reaches
+      crane on stdin, never on its command line. Set it in the env of the step
+      that uses this action, from a secret.
+    default: REGISTRY_PASSWORD
+  registry:
+    description: >
+      Registry host to store credentials for, with an optional port, such as
+      ghcr.io or localhost:5000.
+    required: true
+  username:
+    description: >
+      Name of the environment variable holding the username. Set it in the env
+      of the step that uses this action.
+    default: REGISTRY_USERNAME
+
+runs:
+  using: composite
+  steps:
+    - name: crane Login
+      shell: bash
+      env:
+        PARAM_PASSWORD: ${{ inputs.password }}
+        PARAM_REGISTRY: ${{ inputs.registry }}
+        PARAM_USERNAME: ${{ inputs.username }}
+      run: >-
+        bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/login.sh"
+        "SCRIPT_CRANE_LIB=${GITHUB_ACTION_PATH}/../../src/scripts/lib/crane.sh"

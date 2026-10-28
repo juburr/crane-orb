@@ -1,0 +1,57 @@
+name: Read an image's digest with crane
+description: >
+  Reads an image's digest from its registry with crane digest, and exports the
+  digest and the image's reference by digest for later steps, so they can sign,
+  scan, tag or deploy exactly that image. Log in to the registry first, unless
+  it allows anonymous pulls. The GitHub Actions twin of the orb's digest
+  command.
+author: juburr
+
+inputs:
+  digest_env_var:
+    description: >
+      Name of the environment variable to set, for later steps, to the digest,
+      such as sha256:4c1f….
+    default: CRANE_DIGEST
+  digest_ref_env_var:
+    description: >
+      Name of the environment variable to set, for later steps, to the image's
+      reference by digest, such as ghcr.io/myorg/myapp@sha256:4c1f….
+    default: CRANE_DIGEST_REF
+  extra_args:
+    description: >
+      More arguments for crane digest, split like shell words. Nothing in them
+      is run as shell code.
+    default: ""
+  image:
+    description: >
+      Image to read: <registry>/<repository>:<tag>, such as
+      ghcr.io/myorg/myapp:1.0.0.
+    required: true
+  insecure:
+    description: >
+      Allow a registry without TLS, or with a certificate that doesn't verify.
+      For localhost with a port, 127.0.0.1, *.localhost and private IP
+      addresses, crane already falls back to plain HTTP.
+    default: "false"
+  platform:
+    description: >
+      For a multi-platform image, read the digest of this platform's image, such
+      as linux/amd64, instead of the digest of the whole index.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: crane Digest
+      shell: bash
+      env:
+        PARAM_DIGEST_ENV_VAR: ${{ inputs.digest_env_var }}
+        PARAM_DIGEST_REF_ENV_VAR: ${{ inputs.digest_ref_env_var }}
+        PARAM_EXTRA_ARGS: ${{ inputs.extra_args }}
+        PARAM_IMAGE: ${{ inputs.image }}
+        PARAM_INSECURE: ${{ inputs.insecure }}
+        PARAM_PLATFORM: ${{ inputs.platform }}
+      run: >-
+        bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/digest.sh"
+        "SCRIPT_CRANE_LIB=${GITHUB_ACTION_PATH}/../../src/scripts/lib/crane.sh"
