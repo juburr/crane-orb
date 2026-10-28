@@ -1,0 +1,45 @@
+name: Tag an image with crane
+description: >
+  Adds tags to an image already in a registry with crane tag, which writes the
+  image's manifest under each new tag in the same repository without pulling or
+  pushing any layers. Log in to the registry first. The GitHub Actions twin of
+  the orb's tag command.
+author: juburr
+
+inputs:
+  extra_args:
+    description: >
+      More arguments for crane tag, split like shell words. Nothing in them is
+      run as shell code.
+    default: ""
+  image:
+    description: >
+      Image to tag: <registry>/<repository>@<digest>, or :<tag> in place of
+      @<digest>. A digest, such as the reference the digest command exports,
+      tags exactly that image.
+    required: true
+  insecure:
+    description: >
+      Allow a registry without TLS, or with a certificate that doesn't verify.
+      For localhost with a port, 127.0.0.1, *.localhost and private IP
+      addresses, crane already falls back to plain HTTP.
+    default: "false"
+  tags:
+    description: >
+      Tags to add, separated by spaces or newlines, such as 1.2.3 latest. Each
+      is a tag only, not a reference: it is added in image's repository.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: crane Tag
+      shell: bash
+      env:
+        PARAM_EXTRA_ARGS: ${{ inputs.extra_args }}
+        PARAM_IMAGE: ${{ inputs.image }}
+        PARAM_INSECURE: ${{ inputs.insecure }}
+        PARAM_TAGS: ${{ inputs.tags }}
+      run: >-
+        bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/tag.sh"
+        "SCRIPT_CRANE_LIB=${GITHUB_ACTION_PATH}/../../src/scripts/lib/crane.sh"

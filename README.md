@@ -2,27 +2,29 @@
 
 <img src="assets/logos/crane-orb-512px.png" width="256" alt="Crane Orb logo: a white crane bird carrying a blue shipping container in its beak over stacked containers and a cloud, above the word crane-orb, in a round dark badge">
 
-# Crane Orb for CircleCI
+# Crane for CircleCI and GitHub Actions
 
-### Copy, tag and inspect container images in their registries, straight from CircleCI.
+### Copy, tag and inspect container images in their registries, from CircleCI or GitHub Actions.
 
-Install a checksum-verified [crane](https://github.com/google/go-containerregistry/tree/main/cmd/crane) and work on images where they live:<br>
+Install a checksum-verified [crane](https://github.com/google/go-containerregistry/tree/main/cmd/crane) and work on images where they live, with orb commands or GitHub Actions:<br>
 promote a build between registries, mirror a base image, add release tags, or pin a tag to its digest.<br>
 No Docker daemon · Strict SHA-512 verification by default · No `sudo` · Passwords never on the command line
 
 [![CircleCI Build Status](https://circleci.com/gh/juburr/crane-orb.svg?style=shield "CircleCI Build Status")](https://circleci.com/gh/juburr/crane-orb)
+[![GitHub Actions Status](https://github.com/juburr/crane-orb/actions/workflows/actions.yml/badge.svg?branch=main "GitHub Actions Status")](https://github.com/juburr/crane-orb/actions/workflows/actions.yml)
 [![CircleCI Orb Version](https://badges.circleci.com/orbs/juburr/crane-orb.svg)](https://circleci.com/developer/orbs/orb/juburr/crane-orb)
 [![GitHub License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 [![CircleCI Community](https://img.shields.io/badge/community-CircleCI%20Discuss-343434.svg)](https://discuss.circleci.com/c/ecosystem/orbs)
 
+![CircleCI orb and GitHub Actions](https://img.shields.io/badge/CI-CircleCI%20%7C%20GitHub%20Actions-F97316?style=for-the-badge)
 ![crane 0.13+](https://img.shields.io/badge/crane-0.13%2B-7C3AED?style=for-the-badge)
 ![amd64 and arm64](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-0EA5E9?style=for-the-badge&logo=linux&logoColor=white)
 ![SHA-512 verified by default](https://img.shields.io/badge/SHA--512-strict%20by%20default-16A34A?style=for-the-badge)
 ![No sudo required](https://img.shields.io/badge/sudo-not%20required-DB2777?style=for-the-badge)
 
-**[Quick Start](#-quick-start)** · **[Features](#-why-crane-orb)** · **[Recipes](#-recipes)** · **[Commands](#-commands)** · **[Security](#-secure-by-design)** · **[Network Access](#-network-access)**
+**[Quick Start](#-quick-start)** · **[Features](#-why-crane-orb)** · **[Recipes](#-recipes)** · **[Commands](#-commands)** · **[GitHub Actions](#-github-actions)** · **[Security](#-secure-by-design)** · **[Network Access](#-network-access)**
 
-<sub>An unofficial, community-maintained orb. [Contributions are welcome!](#-contributing)</sub>
+<sub>An unofficial, community-maintained CircleCI orb and set of GitHub Actions. [Contributions are welcome!](#-contributing)</sub>
 
 </div>
 
@@ -97,13 +99,15 @@ flowchart LR
 
 ## 🚀 Quick Start
 
+### CircleCI
+
 Add the orb, install crane, promote an image. Copy this into `.circleci/config.yml`:
 
 ```yaml
 version: 2.1
 
 orbs:
-  crane: juburr/crane-orb@0.1.0
+  crane: juburr/crane-orb@0.2.0
 
 jobs:
   promote:
@@ -134,6 +138,50 @@ workflows:
 ```
 
 Swap in your registry and repositories, put `REGISTRY_USERNAME` and `REGISTRY_PASSWORD` in the `registry-credentials` context (for GHCR, your GitHub username and a token that can write packages), and run it. `digest` pins the staging tag to the image it points to right now, `copy` copies exactly that image, and `tag` adds the release tags to the copy, which keeps the source's digest. No step needs a Docker daemon, so this runs on a plain Docker executor.
+
+### GitHub Actions
+
+```yaml
+name: Promote
+
+on: push
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: juburr/crane-orb/actions/install@v0.2.0
+        with:
+          version: "0.22.1"
+      # Reads the credentials from REGISTRY_USERNAME and REGISTRY_PASSWORD.
+      - uses: juburr/crane-orb/actions/login@v0.2.0
+        env:
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          registry: ghcr.io
+      - uses: juburr/crane-orb/actions/digest@v0.2.0
+        with:
+          image: ghcr.io/my-org/myapp-staging:${{ github.sha }}
+      - uses: juburr/crane-orb/actions/copy@v0.2.0
+        with:
+          source: ${{ env.CRANE_DIGEST_REF }}
+          destination: ghcr.io/my-org/myapp:${{ github.sha }}
+      - uses: juburr/crane-orb/actions/tag@v0.2.0
+        with:
+          image: ghcr.io/my-org/myapp@${{ env.CRANE_DIGEST }}
+          tags: 1.2.3 latest
+      - uses: juburr/crane-orb/actions/logout@v0.2.0
+        if: always()
+        with:
+          registry: ghcr.io
+```
+
+The job's `GITHUB_TOKEN` can push to GHCR with `packages: write`. What `digest` exports reaches later steps as `env.CRANE_DIGEST` and `env.CRANE_DIGEST_REF`. See [GitHub Actions](#-github-actions) for how the actions map to the orb's commands.
 
 > [!IMPORTANT]
 > This orb is at 0.x, so a minor release may still change a command or parameter. Pin the orb version, and the crane `version` as shown, so neither changes until you decide.
@@ -255,6 +303,31 @@ Adds tags to an image already in a registry with `crane tag`, which writes the i
 
 String parameters expand environment variables, such as `${CIRCLE_SHA1}`. In `tags` and `extra_args` that happens before the value is split, so quote a variable that may hold spaces.
 
+## ⚡ GitHub Actions
+
+Each of the orb's commands has a GitHub Action of the same name. The actions run the same scripts as the orb, so they do the same things the same way, and take the same inputs with the same defaults.
+
+| Action | Orb command |
+| --- | --- |
+| `juburr/crane-orb/actions/install@v0.2.0` | [`crane/install`](#craneinstall) |
+| `juburr/crane-orb/actions/login@v0.2.0` | [`crane/login`](#cranelogin) |
+| `juburr/crane-orb/actions/logout@v0.2.0` | [`crane/logout`](#cranelogout) |
+| `juburr/crane-orb/actions/copy@v0.2.0` | [`crane/copy`](#cranecopy) |
+| `juburr/crane-orb/actions/digest@v0.2.0` | [`crane/digest`](#cranedigest) |
+| `juburr/crane-orb/actions/tag@v0.2.0` | [`crane/tag`](#cranetag) |
+
+How they differ from the orb's commands:
+
+- **Versions.** An action is referenced by the repository's release tag, such as `v0.2.0`, the same tag the orb is published from. There is no moving major tag yet. For the strongest pinning, use the tag's commit SHA: `juburr/crane-orb/actions/copy@<sha> # v0.2.0`.
+- **Inputs are strings.** Write booleans quoted or not (`insecure: true` reaches the script as `true`); the scripts check every boolean themselves.
+- **Credentials.** `login`'s `username` and `password` name environment variables, as in the orb. Set them in the `env` of the step that uses `login`, from secrets, as in the [Quick Start](#github-actions). They reach the action's script and nothing else.
+- **Environment variables.** The orb expands `$NAME` in its parameters with the CircleCI CLI, which GitHub's runners don't have, so the actions take values as they are. Use GitHub's expressions instead, such as `image: ghcr.io/my-org/myapp:${{ github.sha }}`, or `${{ env.CRANE_DIGEST_REF }}` for what an earlier `digest` exported.
+- **Caching.** `caching` stores the verified release with [`actions/cache`](https://github.com/actions/cache), with the same key ingredients as the orb. The cache is restored before the install and saved right after it, and what it restores is verified again. It counts toward the repository's GitHub Actions cache storage.
+- **Exports.** What a command exports to later steps (the install path on the `PATH`, the digest and reference `digest` exports) is passed on through `GITHUB_PATH` and `GITHUB_ENV`.
+- **Runners.** CI installs crane on GitHub-hosted `ubuntu-24.04` and `ubuntu-24.04-arm` runners, once from the cache with the download hosts blocked, and runs every action against a registry that requires a login, under crane 0.15.1 and the default version, as on CircleCI.
+
+The actions are composite actions in [`actions/`](actions), next to the orb's source. Each passes its inputs to the orb's script as environment variables, never pasting them into a script, and [`actions/run_script.sh`](actions/run_script.sh) gives the script what CircleCI would: a `BASH_ENV` file for the values it hands to later steps, which it then passes on through `GITHUB_PATH` and `GITHUB_ENV`.
+
 ## 🔒 Secure by Design
 
 - **Least Privilege**: Installs to a user-owned directory by default, with no `sudo` usage anywhere in this orb, and needs no Docker daemon.
@@ -268,7 +341,7 @@ String parameters expand environment variables, such as `${CIRCLE_SHA1}`. In `ta
 
 ## 💻 Supported Platforms
 
-Linux executors on `x86_64` (amd64) and `aarch64`/`arm64` (arm64), including CircleCI [Arm resource classes](https://circleci.com/docs/using-arm/). The `install` command picks the crane release asset for the architecture reported by `uname -m` and, in the default `strict` mode, verifies it against that architecture's SHA-512 checksum. Any other operating system or architecture fails the install rather than installing a binary that can't run. CI installs on `cimg/base` (Docker, amd64) and on an Arm machine executor, and runs every command against a registry that requires a login, under crane 0.15.1 and the default version.
+Linux executors on `x86_64` (amd64) and `aarch64`/`arm64` (arm64), including CircleCI [Arm resource classes](https://circleci.com/docs/using-arm/). The `install` command picks the crane release asset for the architecture reported by `uname -m` and, in the default `strict` mode, verifies it against that architecture's SHA-512 checksum. Any other operating system or architecture fails the install rather than installing a binary that can't run. CI installs on `cimg/base` (Docker, amd64) and on an Arm machine executor, and runs every command against a registry that requires a login, under crane 0.15.1 and the default version. The GitHub Actions run on GitHub-hosted `ubuntu-24.04` and `ubuntu-24.04-arm` runners (see [GitHub Actions](#-github-actions)).
 
 `install` needs bash 4 or newer, `curl` or `wget`, `awk`, `tar`, `gzip`, and the standard coreutils, including `mktemp` and, when it verifies, `sha512sum`. CircleCI's `cimg` and machine images have all of them; on an image that lacks one, such as Red Hat UBI, install it in an earlier step (for example `microdnf install -y tar gzip`).
 
@@ -296,6 +369,7 @@ Hosts to allow (HTTPS, port 443) when running on a locked-down, self-hosted runn
 | `release-assets.githubusercontent.com` | `install` | Where GitHub currently redirects release downloads |
 | `objects.githubusercontent.com` | `install` | GitHub's previous redirect target for release downloads; allow it as well |
 | `circleci-tasks-prod.s3.us-east-1.amazonaws.com` | `install` with `caching: true` (the default), on CircleCI cloud with self-hosted runners | CircleCI's cache storage, used by the built-in `restore_cache` and `save_cache` steps (see the [runner FAQ](https://circleci.com/docs/guides/execution-runner/runner-faqs/#what-connectivity-is-required)). Set `caching: false` to avoid it. |
+| GitHub's cache storage | `install` with `caching: true`, through `actions/cache`, on self-hosted GitHub runners | The verified release (see GitHub's [self-hosted runner communication](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#requirements-for-communication-with-github)). Set `caching: false` to avoid it. |
 
 Hosts you configure, contacted only by the commands that take them:
 
@@ -335,5 +409,5 @@ Need the logo for a slide deck, blog post, or internal developer portal? PNGs wi
   <br>
   <sub>Images move registry to registry, no daemon required. If this orb helps your team, a ⭐ helps others find it.</sub>
   <br>
-  <sub><a href="#crane-orb-for-circleci">Back to top ↑</a></sub>
+  <sub><a href="#crane-for-circleci-and-github-actions">Back to top ↑</a></sub>
 </div>

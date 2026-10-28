@@ -41,12 +41,14 @@ fi
 # crane command for every registry.
 if [[ -z "${USERNAME}" ]]; then
     echo "ERROR: The ${PARAM_USERNAME} environment variable, which username names, is empty or unset." >&2
-    echo "  Set it in a context or project environment variable, or pass the name of another variable as username." >&2
+    echo "  Set it from a secret (a CircleCI context or project variable, or a GitHub Actions secret in the step's env)," >&2
+    echo "  or pass the name of another variable as username." >&2
     exit 1
 fi
 if [[ -z "${PASSWORD}" ]]; then
     echo "ERROR: The ${PARAM_PASSWORD} environment variable, which password names, is empty or unset." >&2
-    echo "  Set it in a context or project environment variable, or pass the name of another variable as password." >&2
+    echo "  Set it from a secret (a CircleCI context or project variable, or a GitHub Actions secret in the step's env)," >&2
+    echo "  or pass the name of another variable as password." >&2
     exit 1
 fi
 crane_require

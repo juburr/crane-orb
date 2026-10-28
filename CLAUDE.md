@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an unofficial CircleCI orb for crane, the go-containerregistry CLI that copies, tags and inspects container images directly in their registries, without a Docker daemon. The orb installs a checksum-verified crane and wraps its most used commands.
+This is an unofficial CircleCI orb, and set of GitHub Actions, for crane, the go-containerregistry CLI that copies, tags and inspects container images directly in their registries, without a Docker daemon. The orb installs a checksum-verified crane and wraps its most used commands.
 
 ## Development Commands
 
@@ -38,6 +38,7 @@ for t in tests/*_test.sh; do bash "$t" || break; done
 - `scripts/` - Shell implementations, one per command, included with `<< include(scripts/...) >>`
 - `scripts/lib/crane.sh` - Helpers shared by the command scripts. Each command passes it to its step as `SCRIPT_CRANE_LIB: << include(scripts/lib/crane.sh) >>`, and the script `eval`s it after checking it is set. It only defines functions and has no `set` line.
 - `examples/` - Usage examples, pinned to the orb's current version
+- `../actions/<command>/action.yml` - The GitHub Action for each command (see below)
 
 ### Key Implementation Details
 
@@ -61,10 +62,17 @@ for t in tests/*_test.sh; do bash "$t" || break; done
 
 Every crane call ends its options with `--`, so a reference that starts with `-` is never read as a flag.
 
-### CI Pipeline (`.circleci/`)
+### GitHub Actions (`actions/`)
 
-- `config.yml` - Setup workflow: `test-install` (install contract), `test-env-subst` (env subst and shell conventions), `test-commands` (`tests/login_test.sh` and `tests/commands_test.sh` against a stand-in crane), orb-tools lint, pack and review, shellcheck.
+Every command has a composite action of the same name in `actions/<command>/action.yml`, with inputs identical to the command's parameters (names and defaults). Each step passes inputs to the orb's script as `PARAM_*` environment variables, as the command does, and runs it with `bash "${GITHUB_ACTION_PATH}/../run_script.sh" SCRIPT SCRIPT_CRANE_LIB=<lib>`. Inputs never appear inside a `run:` script. `install` restores and saves `actions/cache` with the command's key ingredients. `login`'s credentials come from the variables its inputs name, which a workflow sets in the `env` of the step that uses it. Every `uses:` is pinned to a commit SHA with its version in a comment.
+
+`actions/run_script.sh` and `tests/actions_test.sh` are identical in every juburr orb that ships actions; never edit them here alone. Keep the actions in sync with the command YAML by hand or with an equivalent generator, and quote any default a YAML 1.1 reader would take for a boolean or number: every input is a string. Without the CircleCI CLI, `crane_subst` uses values as they are, so the action descriptions leave out "Environment variables are expanded". `tests/actions_test.sh` checks all of this.
+
+### CI Pipeline
+
+- `.circleci/config.yml` - Setup workflow: `test-install` (install contract), `test-env-subst` (env subst and shell conventions), `test-commands` (`tests/login_test.sh` and `tests/commands_test.sh` against a stand-in crane), `test-actions` (`tests/actions_test.sh`), orb-tools lint, pack and review, shellcheck.
 - `test-deploy.yml` - `command-test`, `checksum-test` (the unlisted 0.12.0 fails closed; `known_versions` installs it), `arm64-test` (Arm machine, second install from cache), and `registry-test`, a matrix over crane 0.15.1 (the oldest with `auth logout`) and the default version. It copies `cgr.dev/chainguard/static:latest`, pinned to the digest it reads first, into a `registry:2` with htpasswd auth on a machine executor, whole and as linux/arm64, and checks the exported digests against the source's and the registry's, the tags, and that the registry refuses crane after `logout`. The source comes from the registry that publishes it, not mirror.gcr.io: that pull-through cache can be missing the layers of platforms few people pull, and failed the copy that way. Publishing runs on `v*` tags.
+- `.github/workflows/actions.yml` - The actions on GitHub's runners: `offline-tests`; `install` (amd64 and arm64, a second install from the cache, an unlisted version failing); `install-from-cache` (the download hosts blocked); and `registry`, which mirrors `registry-test` (crane 0.15.1 and the default against a `registry:2` with htpasswd auth, started with `docker run`), plus a login whose password variable is unset, which must fail.
 
 ## Linting
 

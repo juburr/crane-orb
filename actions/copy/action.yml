@@ -1,0 +1,54 @@
+name: Copy an image with crane
+description: >
+  Copies an image from one registry or repository to another with crane copy,
+  registry to registry and without a Docker daemon. A multi-platform image is
+  copied with every platform, and keeps its digest. Log in to the registries
+  first, unless they allow anonymous access. The GitHub Actions twin of the
+  orb's copy command.
+author: juburr
+
+inputs:
+  destination:
+    description: >
+      Where to copy it: <registry>/<repository>:<tag>, such as
+      registry.example.com/myapp:1.0.0.
+    required: true
+  extra_args:
+    description: >
+      More arguments for crane copy, split like shell words. Nothing in them is
+      run as shell code. From crane 0.15.1 on, these include --jobs, --all-tags,
+      which takes source and destination as repositories without a tag, and
+      --no-clobber, which fails the step whenever the destination tag exists,
+      even when it holds the same image.
+    default: ""
+  insecure:
+    description: >
+      Allow registries without TLS, or with a certificate that doesn't verify.
+      For localhost with a port, 127.0.0.1, *.localhost and private IP
+      addresses, crane already falls back to plain HTTP.
+    default: "false"
+  platform:
+    description: >
+      Copy only this platform of a multi-platform image, such as linux/amd64.
+      The copy then has the platform's own digest. Empty copies every platform.
+    default: ""
+  source:
+    description: >
+      Image to copy: <registry>/<repository>:<tag> or
+      <registry>/<repository>@<digest>.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: crane Copy
+      shell: bash
+      env:
+        PARAM_DESTINATION: ${{ inputs.destination }}
+        PARAM_EXTRA_ARGS: ${{ inputs.extra_args }}
+        PARAM_INSECURE: ${{ inputs.insecure }}
+        PARAM_PLATFORM: ${{ inputs.platform }}
+        PARAM_SOURCE: ${{ inputs.source }}
+      run: >-
+        bash "${GITHUB_ACTION_PATH}/../run_script.sh" "${GITHUB_ACTION_PATH}/../../src/scripts/copy.sh"
+        "SCRIPT_CRANE_LIB=${GITHUB_ACTION_PATH}/../../src/scripts/lib/crane.sh"
